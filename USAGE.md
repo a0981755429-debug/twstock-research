@@ -232,6 +232,13 @@ python -m scripts.backfill_financials_history --quarters 8
 新增（代號→名稱由 stock_info 自動帶出）、批次貼上、勾選刪除。原子寫入 `watchlist.yaml`。
 **🆕 標籤編輯**：每列「標籤」欄可直接編輯：chip 上點 × 移除、輸入框輸入新 tag 後 Enter / blur 加入。後端會自動 trim + 去重（保序）。空 list 視為清空。樂觀更新 + 失敗自動 rollback。watchlist.yaml 用 parallel `tags:` map 儲存，舊格式（只有 `stocks:`）仍可正常讀取。
 
+### 🔔 價格提醒（到價推播）
+1. 在「預警」頁新增規則：輸入代號，選「跌破 / 突破」並填價格。
+2. 在 `config.yaml` 的 `notify` 設定推播管道（`telegram` / `ntfy` / `discord` 三選一，設定步驟寫在 [config.yaml.example](config.yaml.example)）。
+3. 收盤價提醒：`daily-update.bat` 每天盤後會自動檢查一次。
+4. **🆕 盤中即時提醒**：開盤前雙擊 `intraday-alerts.bat`（或主選單 `stock.bat` 選 `a`），交易時段內每 5 分鐘用證交所即時報價檢查，到價馬上推播，13:30 收盤後自動結束。同一條規則 24 小時內只推一次。
+   - 測試：`python -m scripts.intraday_alerts --once --dry-run`（只印結果、不推播）
+
 ### ⏮ 策略回測 / 📊 投組回測 / 🔬 參數掃描
 - **🎨 情景預設**：頁首 3 卡（短線快手 / 波段獵人 / 長期持有），一鍵套用避免手調 7 個 slider
 - **進階參數折疊**：停損/停利/持有天數/滑價默認收摺
@@ -292,6 +299,7 @@ python -m scripts.backfill_financials_history --quarters 8
 | `python -m scripts.backfill_signal_history --days 60` | 把 signal_history 回填 60 個交易日（給「因子檢定」頁吃）；改過 scoring 邏輯後加 `--clear` 先清舊算法的快照再重算。可搭配 `--skip-existing`（只補缺）或 `--no-fundamentals`（加速）；`--workers N` 並行（預設 4，i5-13400F 建議 6） | 含財報約 40~60 秒/天；workers=6 1000 天約 ~100 分鐘 |
 | `python -m scripts.backfill_index_yfinance --from 2022-01-01` | 用 yfinance `^TWII` 補 TWSE 加權指數歷史（TWSE OpenAPI 只回 ~2.7 年，要更早只能靠 yfinance）。預設 `--skip-existing` 不覆寫，給 mid factor RS 因子用 | ~30 秒 |
 | `python -m scripts.backfill_daily_price_yfinance` / `--apply` | 🆕 用 yfinance 補個股 OHLC 2022-2023（TWSE OpenAPI 同樣只回 ~2.7 年）。`--from 2022-01-01` 預設、`--skip-existing` 預設（只補比現有 MIN(date) 早的）；可指定 `--stocks 2330,2454,5483` debug | ~1-2 小時跑全市場 |
+| `python -m scripts.intraday_alerts` / `--interval 3` / `--once --dry-run` | 🆕 盤中價格提醒：交易時段每 N 分鐘（預設 5）用 mis 即時價檢查「跌破 / 突破」規則，命中就推播；收盤自動結束。`intraday-alerts.bat` 包這條 | 整個盤中 |
 | `python -m scripts.prune_warrants` / `--apply` | 🆕 一次性清掉 daily_price/institutional/margin 裡的權證 + 孤兒列（白名單語意：留 stock_info.is_tradable=1 的）；`--apply` 才會真刪 + VACUUM。**VACUUM 需 exclusive lock，先 stop.bat 收掉服務** | DELETE 5-10 分、VACUUM 1-2 分 |
 
 > `--push-line` 舊旗標仍相容（等同 `--push`），LINE Notify 已停服。

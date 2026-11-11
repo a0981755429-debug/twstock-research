@@ -105,15 +105,19 @@ def set_active(db: Database, rule_id: int, active: bool) -> None:
         conn.commit()
 
 
-def _check_price_rule(conn, rule: dict) -> AlertHit | None:
+def _check_price_rule(conn, rule: dict, live_price: float | None = None) -> AlertHit | None:
+    """live_price 有給（盤中模式）就用即時價，否則用 daily_price 最新收盤。"""
     sid, kind, threshold = rule["stock_id"], rule["rule_kind"], rule["threshold"]
-    row = conn.execute(
-        "SELECT close FROM daily_price WHERE stock_id=? ORDER BY date DESC LIMIT 1",
-        (sid,),
-    ).fetchone()
-    if not row or row["close"] is None:
-        return None
-    close = float(row["close"])
+    if live_price is not None:
+        close = float(live_price)
+    else:
+        row = conn.execute(
+            "SELECT close FROM daily_price WHERE stock_id=? ORDER BY date DESC LIMIT 1",
+            (sid,),
+        ).fetchone()
+        if not row or row["close"] is None:
+            return None
+        close = float(row["close"])
     hit = (
         (kind == "price_below" and close <= threshold)
         or (kind == "price_above" and close >= threshold)
@@ -124,7 +128,7 @@ def _check_price_rule(conn, rule: dict) -> AlertHit | None:
     return AlertHit(
         rule_id=rule["id"], stock_id=sid, stock_name="",  # 由 caller 補
         rule_kind=kind, threshold=threshold, actual_value=close,
-        message=f"{direction}價格 {threshold:.2f}（現價 {close:.2f}）",
+        message=f"{direction}價格 {threshold:.2f}（{'盤中即時' if live_price is not None else '收盤'} {close:.2f}）",
     )
 
 
@@ -186,8 +190,28 @@ def _check_atr_rule(db: Database, conn, rule: dict) -> AlertHit | None:
     )
 
 
-def check_alerts(db: Database, *, push: bool = True) -> list[AlertHit]:
+def _live_prices(conn, rules: list[dict]) -> dict[str, float]:
+    """盤中模式：對所有價格規則的股票批次抓 mis 即時價。抓不到的檔不在回傳裡。"""
+    sids = sorted({r["stock_id"] for r in rules if r["rule_kind"] in ("price_below", "price_above")})
+    if not sids:
+        return {}
+    types: dict[str, str | None] = {}
+    for sid in sids:
+        row = conn.execute("SELECT type FROM stock_info WHERE stock_id=?", (sid,)).fetchone()
+        types[sid] = row["type"] if row else None
+    from app.data.intraday import fetch_quotes
+    quotes = fetch_quotes([(sid, types[sid]) for sid in sids])
+    # is_live=False 代表掉到昨收 fallback，不是真的盤中價 → 不拿來判斷
+    return {sid: q.price for sid, q in quotes.items() if q.is_live}
+
+
+def check_alerts(
+    db: Database, *, push: bool = True, intraday: bool = False,
+) -> list[AlertHit]:
     """掃描所有 active 規則 → 回傳命中清單，並可選 push 通知。
+
+    intraday=True：只評估價格規則（price_below / price_above），價格改用 mis 盤中即時價；
+    分數 / ATR 規則依賴盤後資料，盤中不評估。給 scripts/intraday_alerts.py 用。
 
     呼叫端：daily-update.bat 結尾呼叫一次（資料更新完才檢查）；UI `/api/alerts/check` endpoint
     給「測試規則」按鈕用（push=False 不真的推）。
@@ -197,16 +221,26 @@ def check_alerts(db: Database, *, push: bool = True) -> list[AlertHit]:
     today = taipei_today().isoformat()
     hits: list[AlertHit] = []
     with db.connect() as conn:
-        rules = conn.execute(
+        rules = [dict(r) for r in conn.execute(
             "SELECT * FROM alert_rule WHERE active = 1"
-        ).fetchall()
-        for r in rules:
-            r_dict = dict(r)
-            if not _can_retrigger(r_dict.get("last_triggered_at")):
-                continue
+        ).fetchall()]
+        rules = [r for r in rules if _can_retrigger(r.get("last_triggered_at"))]
+        live: dict[str, float] = {}
+        if intraday:
+            rules = [r for r in rules if r["rule_kind"] in ("price_below", "price_above")]
+            try:
+                live = _live_prices(conn, rules)
+            except Exception as e:
+                logger.warning("盤中報價抓取失敗: %s", e)
+                live = {}
+        for r_dict in rules:
             try:
                 if r_dict["rule_kind"] in ("price_below", "price_above"):
-                    hit = _check_price_rule(conn, r_dict)
+                    if intraday:
+                        price = live.get(r_dict["stock_id"])
+                        hit = _check_price_rule(conn, r_dict, price) if price is not None else None
+                    else:
+                        hit = _check_price_rule(conn, r_dict)
                 elif r_dict["rule_kind"] in ("score_drop", "score_rise"):
                     hit = _check_score_rule(conn, r_dict)
                 elif r_dict["rule_kind"] == "atr_breached":
@@ -237,7 +271,7 @@ def check_alerts(db: Database, *, push: bool = True) -> list[AlertHit]:
         ]
         notify(
             "\n".join(body_lines),
-            title=f"📡 {today} 預警觸發 {len(hits)} 條",
+            title=f"📡 {today} {'盤中' if intraday else ''}預警觸發 {len(hits)} 條",
         )
     return hits
 
