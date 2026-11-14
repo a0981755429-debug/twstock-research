@@ -30,6 +30,7 @@ echo      6^) 從雲端拉最新 DB ^(副機^)  ^(sync-from-cloud^)
 echo.
 echo    [ 持股 ]
 echo      7^) 盤後持股檢查           ^(check-holdings^)
+echo      a^) 盤中價格提醒 ^(到價推播^) ^(intraday-alerts^)
 echo.
 echo    [ 排程 ]
 echo      8^) 安裝每日自動更新排程     ^(install-schedule^)
@@ -48,6 +49,7 @@ if "%choice%"=="4" goto do_status
 if "%choice%"=="5" goto do_update
 if "%choice%"=="6" goto do_sync
 if "%choice%"=="7" goto do_holdings
+if /i "%choice%"=="a" goto do_alerts
 if "%choice%"=="8" goto do_install
 if "%choice%"=="9" goto do_uninstall
 if "%choice%"=="0" goto end
@@ -88,6 +90,10 @@ goto menu
 
 :do_uninstall
 call "%~dp0uninstall-schedule.bat"
+goto menu
+
+:do_alerts
+call "%~dp0intraday-alerts.bat"
 goto menu
 
 :do_holdings

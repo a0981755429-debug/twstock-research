@@ -18,10 +18,24 @@ broker:
   fee_discount: 1.0    # 1.0 = 無折扣；0.6 = 6 折；0.28 = 28 折
   fee_min: 20          # 單筆最低手續費
 
-# 推播通知。channel: discord / none（env var NOTIFY_CHANNEL 會覆寫；"none" 關閉推播）
+# 推播通知（價格提醒、每日早報、失敗警告都走這裡）
+# channel: telegram / ntfy / discord / none（env var NOTIFY_CHANNEL 會覆寫；"none" 關閉推播）
 # 新增其他管道只需在 app/notifier.py 加對應 _send_xxx 函式
 notify:
   channel: none
+  # Telegram（推薦，私密）：
+  #   1. 在 Telegram 搜尋 @BotFather → 傳 /newbot → 照指示取名 → 拿到 bot_token
+  #   2. 對你的新 bot 傳任一則訊息，再用瀏覽器開
+  #      https://api.telegram.org/bot<bot_token>/getUpdates ，找 "chat":{"id":數字} 就是 chat_id
+  #   也可用環境變數 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 覆寫
+  telegram:
+    bot_token: "YOUR_TELEGRAM_BOT_TOKEN"
+    chat_id: "YOUR_CHAT_ID"
+  # ntfy（最簡單，免註冊）：手機裝 ntfy App → 訂閱一個別人猜不到的主題名稱 → 填在這裡
+  #   注意：知道主題名稱的人都看得到訊息，名稱請取長一點、亂一點
+  ntfy:
+    topic: "YOUR_SECRET_TOPIC_NAME"
+    server: "https://ntfy.sh"
   discord:
     # 也可用環境變數 DISCORD_WEBHOOK_URL 覆寫
     webhook_url: "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_TOKEN"
